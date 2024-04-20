@@ -28,10 +28,13 @@ impl Plugin for MainPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
             .add_systems(Startup, start_matchbox_socket)
-            .add_systems(ReadInputs, input_handler)
+            .add_systems(ReadInputs, read_local_inputs)
             .add_systems(
                 Update,
-                (update_matchbox_socket.run_if(in_state(AppState::MenuConnect)),),
+                (
+                    update_matchbox_socket.run_if(in_state(AppState::MenuConnect)),
+                    log_ggrs_events.run_if(in_state(AppState::RoundOnline)),
+                ),
             )
             .add_systems(GgrsSchedule, apply_inputs);
     }
@@ -39,15 +42,26 @@ impl Plugin for MainPlugin {
 
 #[repr(C)]
 #[derive(Debug, Pod, Copy, Clone, Zeroable, PartialEq, Resource)]
-struct MyInput;
+struct MyInput(u8);
 
-fn input_handler(mut commands: Commands, keyboard_input: Res<ButtonInput<KeyCode>>) {
-    if keyboard_input.just_pressed(KeyCode::Space) {
-        commands.insert_resource(LocalInputs::<MyGgrsConfig>(HashMap::from([(
-            0 as usize,
-            MyInput {},
-        )])));
+fn read_local_inputs(
+    mut commands: Commands,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    local_players: Res<LocalPlayers>,
+) {
+    let mut local_inputs = HashMap::new();
+
+    for handle in &local_players.0 {
+        let mut input = 0;
+        if keyboard_input.just_pressed(KeyCode::Space) {
+            info!("{handle}");
+            input = 1;
+        }
+
+        local_inputs.insert(*handle, MyInput(input));
     }
+
+    commands.insert_resource(LocalInputs::<MyGgrsConfig>(local_inputs));
 }
 
 fn start_matchbox_socket(mut commands: Commands) {
@@ -61,10 +75,12 @@ fn apply_inputs(inputs: Res<PlayerInputs<MyGgrsConfig>>) {
         let input = match inputs[i].1 {
             InputStatus::Confirmed => inputs[i].0,
             InputStatus::Predicted => inputs[i].0,
-            InputStatus::Disconnected => MyInput, // disconnected players do nothing
+            InputStatus::Disconnected => MyInput(0), // disconnected players do nothing
         };
 
-        info!("input");
+        if input.0 != 0 {
+            info!("input {}", input.0);
+        }
     }
 }
 
@@ -126,7 +142,18 @@ fn update_matchbox_socket(
 
         // insert session as resource and switch state
         commands.insert_resource(Session::P2P(sess));
-        commands.insert_resource(LocalPlayers(handles));
+        // commands.insert_resource(LocalPlayers(handles));
         state.set(AppState::RoundOnline);
+    }
+}
+
+fn log_ggrs_events(mut session: ResMut<Session<MyGgrsConfig>>) {
+    match session.as_mut() {
+        Session::P2P(s) => {
+            for event in s.events() {
+                info!("GGRS Event: {event:?}");
+            }
+        }
+        _ => panic!("This example focuses on p2p."),
     }
 }
