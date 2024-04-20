@@ -21,6 +21,7 @@ fn main() {
 }
 
 const MATCHBOX_ADDR: &str = "ws://localhost:3536";
+// const MATCHBOX_ADDR: &str = "ws://match-0-7.helsing.studio/";
 const ROOM_ID: &str = "peq";
 struct MainPlugin;
 
